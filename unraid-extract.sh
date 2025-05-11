@@ -19,6 +19,12 @@ if [ ! -d "$DEST_PATH" ]; then
   exit 1
 fi
 
+# Relaxed archive validation
+if ! unzip -t "$ARCHIVE_PATH" >/dev/null 2>&1 && ! file "$ARCHIVE_PATH" | grep -qiE 'archive|compressed|Zip|RAR|7-zip|tar'; then
+  echo "❌ Error: '$ARCHIVE_PATH' does not appear to be a valid archive file."
+  exit 1
+fi
+
 # Get extension and base name
 BASENAME=$(basename "$ARCHIVE_PATH")
 EXT_LOWER=$(echo "$BASENAME" | awk -F. '{print tolower($NF)}')
@@ -45,9 +51,7 @@ function discord_embed_notify() {
       \"description\": \"$description\",
       \"color\": $color,
       \"timestamp\": \"$(date -Iseconds)\",
-      \"footer\": {
-        \"text\": \"$FOOTER_TEXT\"
-      }
+      \"footer\": { \"text\": \"$FOOTER_TEXT\" }
     }]
   }" "$DISCORD_WEBHOOK" > /dev/null
 }
@@ -84,52 +88,52 @@ case "$EXT_LOWER" in
       apt update && apt install -y software-properties-common && \
       add-apt-repository multiverse && apt update && \
       apt install -y unrar && \
-      unrar x $OVERWRITE_FLAG \"$ARCHIVE_PATH\" \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      unrar x $OVERWRITE_FLAG '/mnt${ARCHIVE_PATH#/mnt}' '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   zip)
     nohup docker run --rm -v /mnt:/mnt ubuntu bash -c "\
       apt update && apt install -y unzip && \
-      unzip $OVERWRITE_FLAG \"$ARCHIVE_PATH\" -d \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      unzip -o '/mnt${ARCHIVE_PATH#/mnt}' -d '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   7z)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add p7zip && \
-      7z x $OVERWRITE_FLAG \"$ARCHIVE_PATH\" -o\"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      7z x $OVERWRITE_FLAG '/mnt${ARCHIVE_PATH#/mnt}' -o'/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   tar)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add tar && \
-      tar -xf \"$ARCHIVE_PATH\" -C \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      tar -xf '/mnt${ARCHIVE_PATH#/mnt}' -C '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   tar.gz|tgz)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add tar && \
-      tar -xzf \"$ARCHIVE_PATH\" -C \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      tar -xzf '/mnt${ARCHIVE_PATH#/mnt}' -C '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   tar.bz2)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add tar && \
-      tar -xjf \"$ARCHIVE_PATH\" -C \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      tar -xjf '/mnt${ARCHIVE_PATH#/mnt}' -C '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   tar.xz)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add tar xz && \
-      tar -xJf \"$ARCHIVE_PATH\" -C \"$DEST_PATH\"" > "$LOG_FILE" 2>&1 &
+      tar -xJf '/mnt${ARCHIVE_PATH#/mnt}' -C '/mnt${DEST_PATH#/mnt}'" > "$LOG_FILE" 2>&1 &
     ;;
   gz)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add gzip && \
-      gunzip -c \"$ARCHIVE_PATH\" > \"$DEST_PATH/${BASENAME%.gz}\"" > "$LOG_FILE" 2>&1 &
+      gunzip -c '/mnt${ARCHIVE_PATH#/mnt}' > '/mnt${DEST_PATH#/mnt}/${BASENAME%.gz}'" > "$LOG_FILE" 2>&1 &
     ;;
   bz2)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add bzip2 && \
-      bunzip2 -c \"$ARCHIVE_PATH\" > \"$DEST_PATH/${BASENAME%.bz2}\"" > "$LOG_FILE" 2>&1 &
+      bunzip2 -c '/mnt${ARCHIVE_PATH#/mnt}' > '/mnt${DEST_PATH#/mnt}/${BASENAME%.bz2}'" > "$LOG_FILE" 2>&1 &
     ;;
   xz)
     nohup docker run --rm -v /mnt:/mnt alpine sh -c "\
       apk add xz && \
-      unxz -c \"$ARCHIVE_PATH\" > \"$DEST_PATH/${BASENAME%.xz}\"" > "$LOG_FILE" 2>&1 &
+      unxz -c '/mnt${ARCHIVE_PATH#/mnt}' > '/mnt${DEST_PATH#/mnt}/${BASENAME%.xz}'" > "$LOG_FILE" 2>&1 &
     ;;
   *)
     echo "❌ Unsupported file extension: $EXT_LOWER"
@@ -141,10 +145,10 @@ esac
 echo -e "\n✅ Extraction started in background."
 echo "👉 Monitor full log: tail -f $LOG_FILE"
 
-# Collect error log
+# Error scan
 (sleep 2 && grep -iE 'error|cannot|denied|fail' "$LOG_FILE" > "$ERROR_LOG") &
 
-# Wait for process to finish and notify
+# Completion notifier
 (
   while pgrep -f "$ARCHIVE_PATH" > /dev/null; do sleep 5; done
 
